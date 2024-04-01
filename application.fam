@@ -1,0 +1,17 @@
+# For details & more options, see documentation/AppManifests.md in firmware repo
+
+App(
+    appid="g29shifter",  # Must be unique
+    name="G29 Shifter",  # Displayed in menus
+    apptype=FlipperAppType.EXTERNAL,
+    entry_point="g29shifter_app",
+    stack_size=2 * 1024,
+    fap_category="USB",
+    # Optional values
+    # fap_version="0.1",
+    fap_icon="g29shifter.png",  # 10x10 1-bit PNG
+    # fap_description="A simple app",
+    # fap_author="J. Doe",
+    # fap_weburl="https://github.com/Ichicoro/g29shifter",
+    fap_icon_assets="images",  # Image assets to compile for this application
+)
