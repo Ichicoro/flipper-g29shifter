@@ -209,6 +209,7 @@ void furi_hal_adc_set_single_channel(FuriHalAdcChannel channel) {
 uint32_t furi_hal_adc_read_sw() {
     LL_ADC_REG_StartConversion(ADC1);
     while(LL_ADC_IsActiveFlag_EOC(ADC1) == 0) {
+        // FURI_LOG_I(TAG, "ADC EOC: %ld", LL_ADC_IsActiveFlag_EOC(ADC1));
     }
     return LL_ADC_REG_ReadConversionData12(ADC1);
 }
@@ -247,25 +248,17 @@ static uint32_t skeleton_navigation_submenu_callback(void* _context) {
  * @param      model   The model - MyModel object.
 */
 static void view_draw_callback(Canvas* canvas, void* model) {
-    UNUSED(model);
+    AppInputModel* my_model = (AppInputModel*)model;
+    UNUSED(my_model);
 
-    // furi_hal_adc_set_single_channel(FuriHalAdcChannel11);
-    uint32_t adc_value_x = furi_hal_adc_read_sw();
-    float adc_voltage_x = 2.5f * (float)adc_value_x / 4096.0f;
-
-    FURI_LOG_I(TAG, "ADCX: %ld, %f V", adc_value_x, (double)adc_voltage_x);
-
-    // furi_hal_adc_set_single_channel(FuriHalAdcChannel9);
-    // uint32_t adc_value_y = furi_hal_adc_read_sw();
-    // float adc_voltage_y = 2.5f * (float)adc_value_y / 4096.0f;
-
-    // FURI_LOG_I(
-    //     TAG,
-    //     "ADCX: %ld, %f V; ADCY: %ld, %f",
-    //     adc_value_x,
-    //     (double)adc_voltage_x,
-    //     adc_value_y,
-    //     (double)adc_voltage_y);
+    FuriString* xy_str = furi_string_alloc();
+    if(my_model->reverse) {
+        furi_string_printf(
+            xy_str, "X: %.2lf / Y: %.2lf [R]", (double)my_model->x, (double)my_model->y);
+    } else {
+        furi_string_printf(
+            xy_str, "X: %.2lf / Y: %.2lf", (double)my_model->x, (double)my_model->y);
+    }
 
     canvas_set_bitmap_mode(canvas, true);
     canvas_set_font(canvas, FontPrimary);
@@ -274,6 +267,10 @@ static void view_draw_callback(Canvas* canvas, void* model) {
     canvas_draw_str(canvas, 103, 53, "0");
     canvas_set_font(canvas, FontPrimary);
     canvas_draw_str(canvas, 13, 50, "Selected gear:");
+    canvas_set_font(canvas, FontSecondary);
+    canvas_draw_str(canvas, 13, 60, furi_string_get_cstr(xy_str));
+
+    furi_string_free(xy_str);
 }
 
 /**
@@ -283,7 +280,32 @@ static void view_draw_callback(Canvas* canvas, void* model) {
 */
 static void skeleton_view_game_timer_callback(void* context) {
     SkeletonApp* app = (SkeletonApp*)context;
+    AppInputModel* model = view_get_model(app->view_game);
     view_dispatcher_send_custom_event(app->view_dispatcher, SkeletonEventIdRedrawScreen);
+
+    furi_hal_adc_set_single_channel(FuriHalAdcChannel9);
+    uint32_t adc_value_x = furi_hal_adc_read_sw();
+    LL_ADC_REG_StopConversion(ADC1);
+    float adc_voltage_x = 2.5f * (float)adc_value_x / 4096.0f;
+    model->x = adc_voltage_x;
+
+    // FURI_LOG_I(TAG, "ADCX: %ld, %f V", adc_value_x, (double)adc_voltage_x);
+
+    furi_hal_adc_set_single_channel(FuriHalAdcChannel11);
+    uint32_t adc_value_y = furi_hal_adc_read_sw();
+    LL_ADC_REG_StopConversion(ADC1);
+    float adc_voltage_y = 2.5f * (float)adc_value_y / 4096.0f;
+    model->y = adc_voltage_y;
+
+    model->reverse = furi_hal_gpio_read(&gpio_ext_pc1);
+
+    FURI_LOG_I(
+        TAG,
+        "ADCX: %ld, %f V; ADCY: %ld, %f V",
+        adc_value_x,
+        (double)adc_voltage_x,
+        adc_value_y,
+        (double)adc_voltage_y);
 }
 
 /**
@@ -326,9 +348,9 @@ static bool skeleton_view_game_custom_event_callback(uint32_t event, void* conte
     case SkeletonEventIdRedrawScreen:
         // Redraw screen by passing true to last parameter of with_view_model.
         {
-            // bool redraw = true;
-            // with_view_model(
-            //     app->view_game, SkeletonGameModel * _model, { UNUSED(_model); }, redraw);
+            bool redraw = true;
+            with_view_model(
+                app->view_game, AppInputModel * _model, { UNUSED(_model); }, redraw);
             return true;
         }
     case SkeletonEventIdOkPressed:
@@ -384,6 +406,7 @@ static void skeleton_app_init_gpio() {
     furi_hal_bus_enable(FuriHalBusADC);
     furi_hal_gpio_init(&gpio_ext_pa4, GpioModeAnalog, GpioPullNo, GpioSpeedLow);
     furi_hal_gpio_init(&gpio_ext_pa6, GpioModeAnalog, GpioPullNo, GpioSpeedLow);
+    furi_hal_gpio_init(&gpio_ext_pc1, GpioModeInput, GpioPullNo, GpioSpeedLow);
 
     furi_hal_adc_init();
     FURI_LOG_I(TAG, "ADC Init OK");
@@ -423,11 +446,11 @@ static SkeletonApp* skeleton_app_alloc() {
     view_set_exit_callback(app->view_game, skeleton_view_game_exit_callback);
     view_set_context(app->view_game, app);
     view_set_custom_callback(app->view_game, skeleton_view_game_custom_event_callback);
-    // view_allocate_model(app->view_game, ViewModelTypeLockFree, sizeof(SkeletonGameModel));
-    // SkeletonGameModel* model = view_get_model(app->view_game);
-    // model->setting_1_index = setting_1_index;
-    // model->setting_2_name = setting_2_name;
-    // model->x = 0;
+    view_allocate_model(app->view_game, ViewModelTypeLockFree, sizeof(AppInputModel));
+    AppInputModel* model = view_get_model(app->view_game);
+    model->x = 0;
+    model->y = 0;
+    model->reverse = false;
     view_dispatcher_add_view(app->view_dispatcher, SkeletonViewGame, app->view_game);
     view_dispatcher_switch_to_view(app->view_dispatcher, SkeletonViewGame);
 
