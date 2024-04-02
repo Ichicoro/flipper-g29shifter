@@ -250,10 +250,10 @@ static void view_draw_callback(Canvas* canvas, void* model) {
     UNUSED(model);
 
     // furi_hal_adc_set_single_channel(FuriHalAdcChannel11);
-    // uint32_t adc_value_x = furi_hal_adc_read_sw();
-    // float adc_voltage_x = 2.5f * (float)adc_value_x / 4096.0f;
+    uint32_t adc_value_x = furi_hal_adc_read_sw();
+    float adc_voltage_x = 2.5f * (float)adc_value_x / 4096.0f;
 
-    // FURI_LOG_I(TAG, "ADCX: %ld, %f V", adc_value_x, (double)adc_voltage_x);
+    FURI_LOG_I(TAG, "ADCX: %ld, %f V", adc_value_x, (double)adc_voltage_x);
 
     // furi_hal_adc_set_single_channel(FuriHalAdcChannel9);
     // uint32_t adc_value_y = furi_hal_adc_read_sw();
@@ -381,6 +381,7 @@ static bool skeleton_view_game_input_callback(InputEvent* event, void* context) 
 }
 
 static void skeleton_app_init_gpio() {
+    furi_hal_bus_enable(FuriHalBusADC);
     furi_hal_gpio_init(&gpio_ext_pa4, GpioModeAnalog, GpioPullNo, GpioSpeedLow);
     furi_hal_gpio_init(&gpio_ext_pa6, GpioModeAnalog, GpioPullNo, GpioSpeedLow);
 
@@ -428,18 +429,6 @@ static SkeletonApp* skeleton_app_alloc() {
     // model->setting_2_name = setting_2_name;
     // model->x = 0;
     view_dispatcher_add_view(app->view_dispatcher, SkeletonViewGame, app->view_game);
-
-    // app->submenu = submenu_alloc();
-    // submenu_add_item(
-    //     app->submenu, "Config", SkeletonSubmenuIndexConfigure, skeleton_submenu_callback, app);
-    // submenu_add_item(
-    //     app->submenu, "Play", SkeletonSubmenuIndexGame, skeleton_submenu_callback, app);
-    // submenu_add_item(
-    //     app->submenu, "About", SkeletonSubmenuIndexAbout, skeleton_submenu_callback, app);
-    // view_set_previous_callback(submenu_get_view(app->submenu), skeleton_navigation_exit_callback);
-    // // view_dispatcher_add_view(app->view_dispatcher, SkeletonSubmenuIndexGame, submenu_get_view(app->submenu));
-    // view_dispatcher_switch_to_view(app->view_dispatcher, SkeletonSubmenuIndexGame);
-    // view_set_previous_callback(app->view_dispatcher, skeleton_navigation_exit_callback);
     view_dispatcher_switch_to_view(app->view_dispatcher, SkeletonViewGame);
 
     app->text_input = text_input_alloc();
@@ -447,35 +436,6 @@ static SkeletonApp* skeleton_app_alloc() {
         app->view_dispatcher, SkeletonViewTextInput, text_input_get_view(app->text_input));
     app->temp_buffer_size = 32;
     app->temp_buffer = (char*)malloc(app->temp_buffer_size);
-
-    // app->variable_item_list_config = variable_item_list_alloc();
-    // variable_item_list_reset(app->variable_item_list_config);
-    // VariableItem* item = variable_item_list_add(
-    //     app->variable_item_list_config,
-    //     setting_1_config_label,
-    //     COUNT_OF(setting_1_values),
-    //     skeleton_setting_1_change,
-    //     app);
-    // uint8_t setting_1_index = 0;
-    // variable_item_set_current_value_index(item, setting_1_index);
-    // variable_item_set_current_value_text(item, setting_1_names[setting_1_index]);
-
-    // FuriString* setting_2_name = furi_string_alloc();
-    // furi_string_set_str(setting_2_name, setting_2_default_value);
-    // app->setting_2_item = variable_item_list_add(
-    //     app->variable_item_list_config, setting_2_config_label, 1, NULL, NULL);
-    // variable_item_set_current_value_text(
-    //     app->setting_2_item, furi_string_get_cstr(setting_2_name));
-    // variable_item_list_set_enter_callback(
-    //     app->variable_item_list_config, skeleton_setting_item_clicked, app);
-
-    // view_set_previous_callback(
-    //     variable_item_list_get_view(app->variable_item_list_config),
-    //     skeleton_navigation_submenu_callback);
-    // view_dispatcher_add_view(
-    //     app->view_dispatcher,
-    //     SkeletonViewConfigure,
-    //     variable_item_list_get_view(app->variable_item_list_config));
 
     app->widget_about = widget_alloc();
     widget_add_text_scroll_element(
