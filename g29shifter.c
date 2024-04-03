@@ -2,6 +2,9 @@
 #include <furi_hal.h>
 #include <furi_hal_gpio.h>
 #include <gui/gui.h>
+#include <gui/icon_i.h>
+#include <gui/icon.h>
+#include <gui/elements.h>
 #include <gui/view.h>
 #include <gui/view_dispatcher.h>
 #include <gui/modules/submenu.h>
@@ -15,7 +18,7 @@
 #include <stm32wbxx_ll_adc.h>
 #include <stm32wbxx_ll_pwr.h>
 
-#define TAG "Skeleton"
+#define TAG "G29 Shifter"
 
 #define X_AXIS_GPIO LL_GPIO_PIN_3;
 #define Y_AXIS_GPIO LL_GPIO_PIN_4;
@@ -34,14 +37,16 @@ typedef enum {
 typedef enum {
     SkeletonViewTextInput, // Input for configuring text settings
     SkeletonViewConfigure, // The configuration screen
+    SkeletonViewConnect, // The connection screen
     SkeletonViewGame, // The main screen
     SkeletonViewAbout, // The about screen with directions, link to social channel, etc.
 } SkeletonView;
 
 typedef enum {
-    SkeletonEventIdRedrawScreen = 0, // Custom event to redraw the screen
-    SkeletonEventIdOkPressed = 42, // Custom event to process OK button getting pressed down
-} SkeletonEventId;
+    ShifterAppEventIdRedrawScreen = 0, // Custom event to redraw the screen
+    ShifterAppEventIdSettingsOpen = 10,
+    ShifterAppEventIdOkPressed = 42, // Custom event to process OK button getting pressed down
+} ShifterAppEventId;
 
 typedef struct {
     float x;
@@ -56,6 +61,8 @@ typedef struct {
     TextInput* text_input; // The text input screen
     VariableItemList* variable_item_list_config; // The configuration screen
     View* view_game; // The main screen
+    View* view_settings; // The settings screen
+    View* view_connect; // The connect screen
     Widget* widget_about; // The about screen
 
     VariableItem* setting_2_item; // The name setting item (so we can update the text)
@@ -63,7 +70,7 @@ typedef struct {
     uint32_t temp_buffer_size; // Size of temporary buffer
 
     FuriTimer* timer; // Timer for redrawing the screen
-} SkeletonApp;
+} ShifterApp;
 
 typedef enum {
     FuriHalVref2048,
@@ -247,7 +254,7 @@ static uint32_t skeleton_navigation_submenu_callback(void* _context) {
  * @param      canvas  The canvas to draw on.
  * @param      model   The model - MyModel object.
 */
-static void view_draw_callback(Canvas* canvas, void* model) {
+static void main_view_draw_callback(Canvas* canvas, void* model) {
     AppInputModel* my_model = (AppInputModel*)model;
     UNUSED(my_model);
 
@@ -264,11 +271,14 @@ static void view_draw_callback(Canvas* canvas, void* model) {
     canvas_set_font(canvas, FontPrimary);
     canvas_draw_str(canvas, 13, 18, "Logitech G29 Shifter");
     canvas_set_font(canvas, FontBigNumbers);
-    canvas_draw_str(canvas, 103, 53, "0");
+    canvas_draw_str(canvas, 103, 38, "0");
     canvas_set_font(canvas, FontPrimary);
-    canvas_draw_str(canvas, 13, 50, "Selected gear:");
+    canvas_draw_str(canvas, 13, 33, "Selected gear:");
     canvas_set_font(canvas, FontSecondary);
-    canvas_draw_str(canvas, 13, 60, furi_string_get_cstr(xy_str));
+    canvas_draw_str(canvas, 13, 45, furi_string_get_cstr(xy_str));
+
+    elements_button_left(canvas, "Exit");
+    elements_button_right(canvas, "Settings");
 
     furi_string_free(xy_str);
 }
@@ -276,27 +286,28 @@ static void view_draw_callback(Canvas* canvas, void* model) {
 /**
  * @brief      Callback for timer elapsed.
  * @details    This function is called when the timer is elapsed.  We use this to queue a redraw event.
- * @param      context  The context - SkeletonApp object.
+ * @param      context  The context - ShifterApp object.
 */
 static void skeleton_view_game_timer_callback(void* context) {
-    SkeletonApp* app = (SkeletonApp*)context;
+    ShifterApp* app = (ShifterApp*)context;
     AppInputModel* model = view_get_model(app->view_game);
-    view_dispatcher_send_custom_event(app->view_dispatcher, SkeletonEventIdRedrawScreen);
+    view_dispatcher_send_custom_event(app->view_dispatcher, ShifterAppEventIdRedrawScreen);
 
+    // Read X axis to model->x
     furi_hal_adc_set_single_channel(FuriHalAdcChannel9);
     uint32_t adc_value_x = furi_hal_adc_read_sw();
     LL_ADC_REG_StopConversion(ADC1);
     float adc_voltage_x = 2.5f * (float)adc_value_x / 4096.0f;
     model->x = adc_voltage_x;
 
-    // FURI_LOG_I(TAG, "ADCX: %ld, %f V", adc_value_x, (double)adc_voltage_x);
-
+    // Read Y axis to model->y
     furi_hal_adc_set_single_channel(FuriHalAdcChannel11);
     uint32_t adc_value_y = furi_hal_adc_read_sw();
     LL_ADC_REG_StopConversion(ADC1);
     float adc_voltage_y = 2.5f * (float)adc_value_y / 4096.0f;
     model->y = adc_voltage_y;
 
+    // Read reverse held to model->reverse
     model->reverse = furi_hal_gpio_read(&gpio_ext_pc1);
 
     FURI_LOG_I(
@@ -312,11 +323,11 @@ static void skeleton_view_game_timer_callback(void* context) {
  * @brief      Callback when the user starts the game screen.
  * @details    This function is called when the user enters the game screen.  We start a timer to
  *           redraw the screen periodically (so the random number is refreshed).
- * @param      context  The context - SkeletonApp object.
+ * @param      context  The context - ShifterApp object.
 */
 static void skeleton_view_game_enter_callback(void* context) {
     uint32_t period = furi_ms_to_ticks(200);
-    SkeletonApp* app = (SkeletonApp*)context;
+    ShifterApp* app = (ShifterApp*)context;
     furi_assert(app->timer == NULL);
     app->timer =
         furi_timer_alloc(skeleton_view_game_timer_callback, FuriTimerTypePeriodic, context);
@@ -326,10 +337,10 @@ static void skeleton_view_game_enter_callback(void* context) {
 /**
  * @brief      Callback when the user exits the game screen.
  * @details    This function is called when the user exits the game screen.  We stop the timer.
- * @param      context  The context - SkeletonApp object.
+ * @param      context  The context - ShifterApp object.
 */
 static void skeleton_view_game_exit_callback(void* context) {
-    SkeletonApp* app = (SkeletonApp*)context;
+    ShifterApp* app = (ShifterApp*)context;
     furi_timer_stop(app->timer);
     furi_timer_free(app->timer);
     app->timer = NULL;
@@ -338,14 +349,14 @@ static void skeleton_view_game_exit_callback(void* context) {
 /**
  * @brief      Callback for custom events.
  * @details    This function is called when a custom event is sent to the view dispatcher.
- * @param      event    The event id - SkeletonEventId value.
- * @param      context  The context - SkeletonApp object.
+ * @param      event    The event id - ShifterAppEventId value.
+ * @param      context  The context - ShifterApp object.
 */
 static bool skeleton_view_game_custom_event_callback(uint32_t event, void* context) {
-    SkeletonApp* app = (SkeletonApp*)context;
+    ShifterApp* app = (ShifterApp*)context;
     UNUSED(app);
     switch(event) {
-    case SkeletonEventIdRedrawScreen:
+    case ShifterAppEventIdRedrawScreen:
         // Redraw screen by passing true to last parameter of with_view_model.
         {
             bool redraw = true;
@@ -353,7 +364,11 @@ static bool skeleton_view_game_custom_event_callback(uint32_t event, void* conte
                 app->view_game, AppInputModel * _model, { UNUSED(_model); }, redraw);
             return true;
         }
-    case SkeletonEventIdOkPressed:
+    case ShifterAppEventIdSettingsOpen: {
+        view_dispatcher_switch_to_view(app->view_dispatcher, SkeletonViewConfigure);
+        return true;
+    }
+    case ShifterAppEventIdOkPressed:
         // Process the OK button.  We play a tone based on the x coordinate.
         if(furi_hal_speaker_acquire(500)) {
             float frequency = 100;
@@ -378,28 +393,49 @@ static bool skeleton_view_game_custom_event_callback(uint32_t event, void* conte
  * @brief      Callback for game screen input.
  * @details    This function is called when the user presses a button while on the game screen.
  * @param      event    The event - InputEvent object.
- * @param      context  The context - SkeletonApp object.
+ * @param      context  The context - ShifterApp object.
  * @return     true if the event was handled, false otherwise.
 */
 static bool skeleton_view_game_input_callback(InputEvent* event, void* context) {
-    SkeletonApp* app = (SkeletonApp*)context;
+    ShifterApp* app = (ShifterApp*)context;
     if(event->type == InputTypeShort) {
         if(event->key == InputKeyLeft) {
             // prova
         } else if(event->key == InputKeyRight) {
             // prova
+            view_dispatcher_send_custom_event(app->view_dispatcher, ShifterAppEventIdSettingsOpen);
+            return true;
         }
     } else if(event->type == InputTypePress) {
         if(event->key == InputKeyOk) {
             // We choose to send a custom event when user presses OK button.  skeleton_custom_event_callback will
-            // handle our SkeletonEventIdOkPressed event.  We could have just put the code from
+            // handle our ShifterAppEventIdOkPressed event.  We could have just put the code from
             // skeleton_custom_event_callback here, it's a matter of preference.
-            view_dispatcher_send_custom_event(app->view_dispatcher, SkeletonEventIdOkPressed);
+            view_dispatcher_send_custom_event(app->view_dispatcher, ShifterAppEventIdOkPressed);
             return true;
         }
     }
 
     return false;
+}
+
+// skeleton_view_connect_input_callback
+// skeleton_view_connect_enter_callback
+// skeleton_view_connect_exit_callback
+// skeleton_view_connect_custom_event_callback
+
+static void connect_view_draw_callback(Canvas* canvas, void* model) {
+    AppInputModel* my_model = (AppInputModel*)model;
+    UNUSED(my_model);
+
+    canvas_set_bitmap_mode(canvas, true);
+    canvas_draw_icon(canvas, 31, 16, &I_Connect_me);
+    canvas_draw_icon(canvas, 0, 0, &I_Background);
+    canvas_set_font(canvas, FontSecondary);
+    canvas_draw_str(canvas, 7, 59, "Please connect your Flipper");
+
+    elements_button_left(canvas, "Exit");
+    elements_button_right(canvas, "Settings");
 }
 
 static void skeleton_app_init_gpio() {
@@ -424,10 +460,10 @@ static void skeleton_app_init_gpio() {
 /**
  * @brief      Allocate the skeleton application.
  * @details    This function allocates the skeleton application resources.
- * @return     SkeletonApp object.
+ * @return     ShifterApp object.
 */
-static SkeletonApp* skeleton_app_alloc() {
-    SkeletonApp* app = (SkeletonApp*)malloc(sizeof(SkeletonApp));
+static ShifterApp* skeleton_app_alloc() {
+    ShifterApp* app = (ShifterApp*)malloc(sizeof(ShifterApp));
 
     skeleton_app_init_gpio();
 
@@ -439,7 +475,7 @@ static SkeletonApp* skeleton_app_alloc() {
     view_dispatcher_set_event_callback_context(app->view_dispatcher, app);
 
     app->view_game = view_alloc();
-    view_set_draw_callback(app->view_game, view_draw_callback);
+    view_set_draw_callback(app->view_game, main_view_draw_callback);
     view_set_input_callback(app->view_game, skeleton_view_game_input_callback);
     view_set_previous_callback(app->view_game, skeleton_navigation_exit_callback);
     view_set_enter_callback(app->view_game, skeleton_view_game_enter_callback);
@@ -447,11 +483,23 @@ static SkeletonApp* skeleton_app_alloc() {
     view_set_context(app->view_game, app);
     view_set_custom_callback(app->view_game, skeleton_view_game_custom_event_callback);
     view_allocate_model(app->view_game, ViewModelTypeLockFree, sizeof(AppInputModel));
+
+    app->view_connect = view_alloc();
+    view_set_draw_callback(app->view_connect, connect_view_draw_callback);
+    // view_set_input_callback(app->view_connect, skeleton_view_connect_input_callback);
+    view_set_previous_callback(app->view_connect, skeleton_navigation_exit_callback);
+    // view_set_enter_callback(app->view_connect, skeleton_view_connect_enter_callback);
+    // view_set_exit_callback(app->view_connect, skeleton_view_connect_exit_callback);
+    view_set_context(app->view_connect, app);
+    view_set_custom_callback(app->view_connect, skeleton_view_game_custom_event_callback);
+    view_allocate_model(app->view_connect, ViewModelTypeLockFree, sizeof(AppInputModel));
+
     AppInputModel* model = view_get_model(app->view_game);
     model->x = 0;
     model->y = 0;
     model->reverse = false;
     view_dispatcher_add_view(app->view_dispatcher, SkeletonViewGame, app->view_game);
+    view_dispatcher_add_view(app->view_dispatcher, SkeletonViewConnect, app->view_connect);
     view_dispatcher_switch_to_view(app->view_dispatcher, SkeletonViewGame);
 
     app->text_input = text_input_alloc();
@@ -487,7 +535,7 @@ static SkeletonApp* skeleton_app_alloc() {
  * @details    This function frees the skeleton application resources.
  * @param      app  The skeleton application object.
 */
-static void skeleton_app_free(SkeletonApp* app) {
+static void skeleton_app_free(ShifterApp* app) {
 #ifdef BACKLIGHT_ON
     notification_message(app->notifications, &sequence_display_backlight_enforce_auto);
 #endif
@@ -516,7 +564,7 @@ static void skeleton_app_free(SkeletonApp* app) {
 int32_t g29shifter_app(void* _p) {
     UNUSED(_p);
 
-    SkeletonApp* app = skeleton_app_alloc();
+    ShifterApp* app = skeleton_app_alloc();
     view_dispatcher_run(app->view_dispatcher);
 
     skeleton_app_free(app);
