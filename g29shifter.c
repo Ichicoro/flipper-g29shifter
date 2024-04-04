@@ -270,13 +270,17 @@ static void main_view_draw_callback(Canvas* canvas, void* model) {
     canvas_set_bitmap_mode(canvas, true);
     canvas_set_font(canvas, FontPrimary);
     canvas_draw_str(canvas, 13, 18, "Logitech G29 Shifter");
+
     canvas_set_font(canvas, FontBigNumbers);
     canvas_draw_str(canvas, 103, 38, "0");
+
     canvas_set_font(canvas, FontPrimary);
     canvas_draw_str(canvas, 13, 33, "Selected gear:");
+
     canvas_set_font(canvas, FontSecondary);
     canvas_draw_str(canvas, 13, 45, furi_string_get_cstr(xy_str));
 
+    canvas_set_font(canvas, FontSecondary);
     elements_button_left(canvas, "Exit");
     elements_button_right(canvas, "Settings");
 
@@ -297,14 +301,14 @@ static void skeleton_view_game_timer_callback(void* context) {
     furi_hal_adc_set_single_channel(FuriHalAdcChannel9);
     uint32_t adc_value_x = furi_hal_adc_read_sw();
     LL_ADC_REG_StopConversion(ADC1);
-    float adc_voltage_x = 2.5f * (float)adc_value_x / 4096.0f;
+    float adc_voltage_x = (float)adc_value_x / 4096.0f;
     model->x = adc_voltage_x;
 
     // Read Y axis to model->y
     furi_hal_adc_set_single_channel(FuriHalAdcChannel11);
     uint32_t adc_value_y = furi_hal_adc_read_sw();
     LL_ADC_REG_StopConversion(ADC1);
-    float adc_voltage_y = 2.5f * (float)adc_value_y / 4096.0f;
+    float adc_voltage_y = (float)adc_value_y / 4096.0f;
     model->y = adc_voltage_y;
 
     // Read reverse held to model->reverse
@@ -365,7 +369,7 @@ static bool skeleton_view_game_custom_event_callback(uint32_t event, void* conte
             return true;
         }
     case ShifterAppEventIdSettingsOpen: {
-        view_dispatcher_switch_to_view(app->view_dispatcher, SkeletonViewConfigure);
+        view_dispatcher_switch_to_view(app->view_dispatcher, SkeletonViewConnect);
         return true;
     }
     case ShifterAppEventIdOkPressed:
@@ -402,7 +406,6 @@ static bool skeleton_view_game_input_callback(InputEvent* event, void* context) 
         if(event->key == InputKeyLeft) {
             // prova
         } else if(event->key == InputKeyRight) {
-            // prova
             view_dispatcher_send_custom_event(app->view_dispatcher, ShifterAppEventIdSettingsOpen);
             return true;
         }
@@ -434,8 +437,8 @@ static void connect_view_draw_callback(Canvas* canvas, void* model) {
     canvas_set_font(canvas, FontSecondary);
     canvas_draw_str(canvas, 7, 59, "Please connect your Flipper");
 
-    elements_button_left(canvas, "Exit");
-    elements_button_right(canvas, "Settings");
+    // elements_button_left(canvas, "Exit");
+    // elements_button_right(canvas, "Settings");
 }
 
 static void skeleton_app_init_gpio() {
@@ -450,8 +453,8 @@ static void skeleton_app_init_gpio() {
     furi_hal_adc_set_vref(FuriHalVref2500);
     FURI_LOG_I(TAG, "Vref Set OK");
 
-    furi_hal_adc_set_single_channel(FuriHalAdcChannel4);
-    FURI_LOG_I(TAG, "ADC Set Channel OK");
+    // furi_hal_adc_set_single_channel(FuriHalAdcChannel4);
+    // FURI_LOG_I(TAG, "ADC Set Channel OK");
 
     furi_hal_adc_enable();
     FURI_LOG_I(TAG, "ADC Enable OK");
@@ -490,8 +493,8 @@ static ShifterApp* skeleton_app_alloc() {
     view_set_previous_callback(app->view_connect, skeleton_navigation_exit_callback);
     // view_set_enter_callback(app->view_connect, skeleton_view_connect_enter_callback);
     // view_set_exit_callback(app->view_connect, skeleton_view_connect_exit_callback);
+    // view_set_custom_callback(app->view_connect, skeleton_view_game_custom_event_callback);
     view_set_context(app->view_connect, app);
-    view_set_custom_callback(app->view_connect, skeleton_view_game_custom_event_callback);
     view_allocate_model(app->view_connect, ViewModelTypeLockFree, sizeof(AppInputModel));
 
     AppInputModel* model = view_get_model(app->view_game);
@@ -548,6 +551,8 @@ static void skeleton_app_free(ShifterApp* app) {
     widget_free(app->widget_about);
     view_dispatcher_remove_view(app->view_dispatcher, SkeletonViewGame);
     view_free(app->view_game);
+    view_dispatcher_remove_view(app->view_dispatcher, SkeletonViewConnect);
+    view_free(app->view_connect);
     view_dispatcher_free(app->view_dispatcher);
     furi_record_close(RECORD_GUI);
 
